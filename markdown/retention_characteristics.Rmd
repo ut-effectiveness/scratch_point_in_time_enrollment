@@ -1,0 +1,66 @@
+---
+title: "Re-enroll Analysis"
+date: "2023-05-03"
+output: html_document
+---
+
+```{r}
+library(here)
+library(tidyverse)
+library(scales)
+library(utHelpR)
+library(scales)
+library(rlang)
+```
+
+
+```{r}
+retention_characteristics_sql <- utHelpR::get_data_from_sql_file("retention_characteristics.sql", dsn="edify", context="project")
+```
+
+```{r}
+gpa_band <- retention_characteristics_sql %>%
+  filter(is_degree_seeking == TRUE) %>% 
+  filter(is_degree_completer_associates == FALSE & is_degree_completer_bachelors == FALSE & is_degree_completer_masters == FALSE) %>% 
+  select(gpa_band, is_returned_next_fall) %>% 
+  group_by(gpa_band, is_returned_next_fall) %>% 
+  summarize(count = n()) %>% 
+  mutate(is_returned_next_fall = if_else(is_returned_next_fall, 'returned', 'lost')) %>% 
+  pivot_wider(names_from = 'is_returned_next_fall', values_from = 'count') %>% 
+  mutate(total = returned + lost) %>% 
+  mutate(retention_rate = percent(returned/total))
+```
+
+```{r}
+single_char <- function(char) {
+  
+  output_df <- retention_characteristics_sql %>%
+    filter(is_degree_seeking == TRUE) %>% 
+    filter(is_degree_completer_associates == FALSE & is_degree_completer_bachelors == FALSE & is_degree_completer_masters == FALSE) %>% 
+    select( {{ char }}, is_returned_next_fall) %>% 
+    group_by( {{ char }}, is_returned_next_fall) %>% 
+    summarize(count = n()) %>% 
+    mutate(is_returned_next_fall = if_else(is_returned_next_fall, 'returned', 'lost')) %>% 
+    pivot_wider(names_from = 'is_returned_next_fall', values_from = 'count') %>% 
+    mutate(total = returned + lost) %>% 
+    mutate(retention_rate = percent(returned/total))
+  
+  return(output_df)
+}
+```
+
+```{r}
+college_lost <- single_char(college_abbrv)
+```
+
+```{r}
+gpa_band_lost <- single_char(gpa_band)
+```
+
+```{r}
+ipeds_lost <- single_char(ipeds_race_ethnicity)
+```
+
+
+
+

@@ -1,0 +1,173 @@
+---
+title: "Point in time enrollment"
+date: "2023-05-03"
+output: html_document
+---
+
+```{r}
+library(here)
+library(tidyverse)
+library(scales)
+library(utHelpR)
+library(scales)
+```
+
+
+```{r}
+pit_enrollment_sql <- utHelpR::get_data_from_sql_file("pit_enrollment.sql", dsn="edify", context="project")
+```
+
+```{r}
+last_year <- pit_enrollment_sql %>% 
+  filter(year == '2022')
+
+this_year <- pit_enrollment_sql %>% 
+  filter(year == '2023') 
+```
+
+```{r}
+make_single_aggregate <- function(input_df, aggregator) {
+  
+  output_df <- input_df %>% 
+  select(days_to_term_start, {{ aggregator }}, year) %>% 
+  group_by(days_to_term_start, {{ aggregator }}, year) %>% 
+  summarize(headcount = n()) %>% 
+  ungroup() %>% 
+  replace_na(list(college = 'unknown')) 
+}
+```
+
+```{r}
+#Testing to define the make_single_aggregate function
+
+student_type_last_year <- last_year %>% 
+  select(days_to_term_start, enrollment_date, student_type, year) %>% 
+  group_by(days_to_term_start, enrollment_date, student_type, year) %>% 
+  summarize(headcount = n()) %>% 
+  ungroup() %>% 
+  replace_na(list(college = 'unknown')) 
+
+student_type_this_year <- this_year %>% 
+  select(days_to_term_start, enrollment_date, student_type, year) %>% 
+  group_by(days_to_term_start, enrollment_date,  student_type, year) %>% 
+  summarize(headcount = n()) %>% 
+  ungroup() %>% 
+  replace_na(list(college = 'unknown')) 
+
+student_type <- student_type_last_year %>% 
+  inner_join(student_type_this_year, by = c('student_type', 'days_to_term_start')) %>% 
+  mutate(change = headcount.y - headcount.x) %>% 
+  mutate(date_diff = enrollment_date.y - enrollment_date.x) %>% 
+  mutate(percent_change = percent(change/headcount.y, accuracy = .1)) %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, student_type, headcount_2022, headcount_2023, 
+         change, percent_change, date_diff)
+```
+
+```{r}
+make_diff <- function(aggregator) {
+  
+  # Turn aggregator into a string
+  aggregator_string <- rlang::enquo(aggregator) %>% 
+    rlang::quo_text()
+  
+  output_df <- make_single_aggregate(last_year, {{ aggregator }}) %>% 
+  inner_join(make_single_aggregate(this_year, {{ aggregator }} ), 
+             by = c(aggregator_string, 'days_to_term_start')) %>% 
+  mutate(change = headcount.y - headcount.x) %>% 
+  mutate(percent_change = percent(change/headcount.y, accuracy = .1))
+  
+}
+```
+
+```{r}
+test_bob <- make_diff(college)
+```
+
+
+```{r}
+
+college_diff <- make_single_aggregate(last_year, college) %>% 
+  inner_join(make_single_aggregate(this_year, college), by = c('college', 'days_to_term_start')) %>% 
+  mutate(change = headcount.y - headcount.x) %>% 
+  mutate(percent_change = percent(change/headcount.y, accuracy = .1))
+```
+
+
+# By Student Type
+
+```{r}
+student_type <- make_diff(student_type) %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, student_type, headcount_2022, headcount_2023, change, percent_change)
+```
+
+# By Gender
+
+```{r}
+gender <- make_diff(gender) %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, gender, headcount_2022, headcount_2023, change, percent_change)
+```
+
+# IPEDS Race/Ethnicity
+
+```{r}
+ipeds_re <- make_diff(race_ethnicity) %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, race_ethnicity, headcount_2022, headcount_2023, change, percent_change)
+```
+
+# Program
+
+```{r}
+program <- make_diff(program) %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, program, headcount_2022, headcount_2023, change, percent_change)
+```
+
+# College
+
+```{r}
+college <- make_diff(college) %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, college, headcount_2022, headcount_2023, change, percent_change)
+```
+
+# University
+
+```{r}
+make_univ_aggregate <- function(input_df) {
+  
+  output_df <- input_df %>% 
+  select(days_to_term_start, year) %>% 
+  group_by(days_to_term_start, year) %>% 
+  summarize(headcount = n()) %>% 
+  ungroup() %>% 
+  replace_na(list(college = 'unknown')) 
+}
+
+make_univ <- function() {
+  
+  output_df <- make_univ_aggregate(last_year) %>% 
+  inner_join(make_univ_aggregate(this_year), 
+             by = c('days_to_term_start')) %>% 
+  mutate(change = headcount.y - headcount.x) %>% 
+  mutate(percent_change = percent(change/headcount.y, accuracy = .1))
+}
+```
+
+```{r}
+univ <- make_univ() %>% 
+  rename(headcount_2022 = headcount.x,
+         headcount_2023 = headcount.y) %>% 
+  select(days_to_term_start, headcount_2022, headcount_2023, change, percent_change) %>% 
+  mutate(aggregate = 'university')
+```
+
